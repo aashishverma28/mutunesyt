@@ -4,12 +4,9 @@ from fastapi.responses import RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 import uvicorn
 from ytmusicapi import YTMusic
-import yt_dlp
 import os
 import httpx
 import time
-import random
-import re
 
 app = FastAPI()
 
@@ -23,41 +20,30 @@ app.add_middleware(
 
 yt = YTMusic()
 
+# Supabase Edge Extraction Config
+SUPABASE_URL = "https://ogagawuaybvfuguejhgm.supabase.co"
+SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9nYWdhd3VheWJ2ZnVndWVqaGdtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg2NTY4MTEsImV4cCI6MjA5NDIzMjgxMX0.K2N70M_AYiYIIybdweVsVfG4ONj6SFOxQD4vWx0i3cc"
+
 stream_cache = {}
 CACHE_TTL = 3600
 
-async def get_vevioz_stream(video_id):
-    """Fallback to Vevioz API for robust extraction"""
-    # Vevioz returns a download button page, we need to extract the direct link if possible
-    # Actually, they have a button API: https://api.vevioz.com/api/button/mp3/{id}
-    # This is often used by small players
+async def get_supabase_edge_stream(video_id):
+    """Extraction via Supabase Edge Function (Bypasses Render IP block)"""
+    url = f"{SUPABASE_URL}/functions/v1/youtube-extractor"
+    headers = {
+        "Authorization": f"Bearer {SUPABASE_KEY}",
+        "Content-Type": "application/json"
+    }
     try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            r = await client.get(f"https://api.vevioz.com/api/button/mp3/{video_id}")
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            r = await client.post(url, json={"id": video_id}, headers=headers)
             if r.status_code == 200:
-                # Scrape the first <a href="..."> that looks like a download link
-                match = re.search(r'href="(https://[^"]+?\.mp3[^"]*?)"', r.text)
-                if match:
-                    return match.group(1)
-    except:
-        pass
-    return None
-
-async def get_piped_stream(video_id):
-    """Fallback to Piped API"""
-    PIPED_INSTANCES = ["https://pipedapi.kavin.rocks", "https://api.piped.victr.me", "https://pipedapi.rivo.gg"]
-    async with httpx.AsyncClient(timeout=10.0) as client:
-        for base in PIPED_INSTANCES:
-            try:
-                r = await client.get(f"{base}/streams/{video_id}")
-                if r.status_code == 200:
-                    data = r.json()
-                    streams = data.get("audioStreams", [])
-                    if streams:
-                        streams.sort(key=lambda x: x.get("bitrate", 0), reverse=True)
-                        return streams[0]["url"]
-            except:
-                continue
+                data = r.json()
+                return data.get("url")
+            else:
+                print(f"Supabase Edge Error: {r.status_code} - {r.text}")
+    except Exception as e:
+        print(f"Supabase request failed: {e}")
     return None
 
 @app.get("/search/songs")
@@ -91,42 +77,17 @@ async def get_stream(id: str):
         if current_time - timestamp < CACHE_TTL: stream_url = cached_url
     
     if not stream_url:
-        # Step 1: Try Direct with refined headers
-        ydl_opts = {
-            'format': 'bestaudio/best',
-            'quiet': True,
-            'no_warnings': True,
-            'nocheckcertificate': True,
-            'user_agent': 'com.google.ios.youtube/19.05.6 (iPhone16,2; U; CPU iOS 17_3_1 like Mac OS X; en_US)',
-            'extractor_args': {'youtube': {'player_client': ['ios'], 'player_skip': ['webpage']}},
-            'source_address': '0.0.0.0'
-        }
-        try:
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                info = ydl.extract_info(f"https://www.youtube.com/watch?v={id}", download=False)
-                stream_url = info['url']
-        except:
-            pass
-            
-        # Step 2: Fallback to Vevioz
+        print(f"Routing extraction for {id} via Supabase Edge...")
+        stream_url = await get_supabase_edge_stream(id)
+        
         if not stream_url:
-            print(f"Direct failed, trying Vevioz for {id}")
-            stream_url = await get_vevioz_stream(id)
-            
-        # Step 3: Fallback to Piped
-        if not stream_url:
-            print(f"Vevioz failed, trying Piped for {id}")
-            stream_url = await get_piped_stream(id)
-            
-        if not stream_url:
-            return {"success": False, "error": "All extraction methods failed. Service is temporarily blocked by YouTube."}
+            return {"success": False, "error": "Edge extraction failed. YouTube bot detection is extremely high."}
             
         stream_cache[id] = (stream_url, current_time)
 
     async def stream_proxy():
         headers = {
-            'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_3_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Mobile/15E148 Safari/604.1',
-            'Referer': 'https://www.youtube.com/'
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
         }
         try:
             async with httpx.AsyncClient(follow_redirects=True, timeout=60.0) as client:
