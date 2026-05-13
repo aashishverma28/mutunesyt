@@ -25,32 +25,26 @@ yt = YTMusic()
 stream_cache = {}
 CACHE_TTL = 3600
 
-# PRE-DEFINED ROBUST INVIDIOUS INSTANCES (API ONLY)
-INVIDIOUS_API_INSTANCES = [
-    "https://invidious.snopyta.org/api/v1",
-    "https://yewtu.be/api/v1",
-    "https://invidious.flokinet.to/api/v1",
-    "https://invidious.lunar.icu/api/v1",
-    "https://inv.tux.digital/api/v1"
-]
-
-async def get_proxy_stream(video_id):
-    """Attempt to get stream URL via public Invidious API fallbacks"""
-    instances = list(INVIDIOUS_API_INSTANCES)
-    random.shuffle(instances)
-    
+async def get_piped_stream(video_id):
+    """Fallback to public Piped API instances for stream extraction"""
+    PIPED_INSTANCES = [
+        "https://pipedapi.kavin.rocks",
+        "https://api.piped.victr.me",
+        "https://pipedapi.rivo.gg",
+        "https://piped-api.garudalinux.org"
+    ]
+    random.shuffle(PIPED_INSTANCES)
     async with httpx.AsyncClient(timeout=10.0, follow_redirects=True) as client:
-        for api_base in instances:
+        for base in PIPED_INSTANCES:
             try:
-                r = await client.get(f"{api_base}/videos/{video_id}")
+                r = await client.get(f"{base}/streams/{video_id}")
                 if r.status_code == 200:
                     data = r.json()
-                    formats = data.get("adaptiveFormats", [])
-                    # Find audio only
-                    audio = [f for f in formats if f.get("type", "").startswith("audio/")]
-                    if audio:
-                        audio.sort(key=lambda x: int(x.get("bitrate", 0)), reverse=True)
-                        return audio[0]["url"]
+                    audio_streams = data.get("audioStreams", [])
+                    if audio_streams:
+                        # Return the highest quality audio stream
+                        audio_streams.sort(key=lambda x: x.get("bitrate", 0), reverse=True)
+                        return audio_streams[0]["url"]
             except:
                 continue
     return None
@@ -86,12 +80,14 @@ async def get_stream(id: str):
         if current_time - timestamp < CACHE_TTL: stream_url = cached_url
     
     if not stream_url:
-        # Step 1: Try Direct Extraction with multiple client fallback
+        # Step 1: Try Direct Extraction with iPhone 15 headers
         ydl_opts = {
             'format': 'bestaudio/best',
             'quiet': True,
             'no_warnings': True,
-            'extractor_args': {'youtube': {'player_client': ['ios', 'android', 'tv'], 'player_skip': ['webpage']}},
+            'nocheckcertificate': True,
+            'user_agent': 'com.google.ios.youtube/19.05.6 (iPhone16,2; U; CPU iOS 17_3_1 like Mac OS X; en_US)',
+            'extractor_args': {'youtube': {'player_client': ['ios'], 'player_skip': ['webpage', 'configs', 'js']}},
             'source_address': '0.0.0.0'
         }
         try:
@@ -99,21 +95,22 @@ async def get_stream(id: str):
                 info = ydl.extract_info(f"https://www.youtube.com/watch?v={id}", download=False)
                 stream_url = info['url']
         except Exception as e:
-            print(f"Direct extract failed: {e}")
+            print(f"Direct extract failed for {id}: {e}")
             
-        # Step 2: Fallback to Invidious API (Distributed IPs)
+        # Step 2: Fallback to Piped API
         if not stream_url:
-            print(f"Using Invidious API fallback for {id}")
-            stream_url = await get_proxy_stream(id)
+            print(f"Using Piped API fallback for {id}")
+            stream_url = await get_piped_stream(id)
             
         if not stream_url:
-            return {"success": False, "error": "Could not extract stream. Render IP is blocked and fallbacks failed."}
+            return {"success": False, "error": "Extraction failed. All bypass methods (Direct + Piped) are blocked."}
             
         stream_cache[id] = (stream_url, current_time)
 
     async def stream_proxy():
+        # Use generic mobile user agent for proxying
         headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_3_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Mobile/15E148 Safari/604.1',
             'Referer': 'https://www.youtube.com/'
         }
         try:
