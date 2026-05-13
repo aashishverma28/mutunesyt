@@ -22,41 +22,34 @@ app.add_middleware(
 
 yt = YTMusic()
 
-# Cache for stream URLs
 stream_cache = {}
 CACHE_TTL = 3600
 
-# Fallback Invidious instances
 INVIDIOUS_INSTANCES = [
     "https://invidious.snopyta.org",
     "https://yewtu.be",
     "https://invidious.flokinet.to",
-    "https://invidious.sethforprivacy.com",
-    "https://invidious.lunar.icu"
+    "https://invidious.lunar.icu",
+    "https://inv.tux.digital",
+    "https://invidious.projectsegfau.lt"
 ]
 
 async def get_invidious_stream(video_id):
-    """Fallback to public Invidious instances for stream extraction"""
-    # Shuffle to distribute load
     instances = list(INVIDIOUS_INSTANCES)
     random.shuffle(instances)
-    
-    async with httpx.AsyncClient(timeout=10.0) as client:
+    async with httpx.AsyncClient(timeout=10.0, follow_redirects=True) as client:
         for instance in instances:
             try:
-                # Invidious API for video info
                 r = await client.get(f"{instance}/api/v1/videos/{video_id}")
                 if r.status_code == 200:
                     data = r.json()
-                    # Find the best audio-only format
                     formats = data.get("adaptiveFormats", [])
-                    # Prefer audio/webm or audio/mp4
                     audio_formats = [f for f in formats if f.get("type", "").startswith("audio/")]
                     if audio_formats:
-                        # Return the first one
+                        # Sort by bitrate if possible
+                        audio_formats.sort(key=lambda x: int(x.get("bitrate", 0)), reverse=True)
                         return audio_formats[0]["url"]
-            except Exception as e:
-                print(f"Invidious fallback failed for {instance}: {e}")
+            except Exception:
                 continue
     return None
 
@@ -91,7 +84,7 @@ async def get_stream(id: str):
         if current_time - timestamp < CACHE_TTL: stream_url = cached_url
     
     if not stream_url:
-        # 1. Try pytubefix with TV client (least likely to be blocked)
+        # 1. Try pytubefix first
         try:
             video_url = f"https://www.youtube.com/watch?v={id}"
             yt_obj = YouTube(video_url, client='TV')
@@ -99,15 +92,14 @@ async def get_stream(id: str):
             if stream:
                 stream_url = stream.url
         except Exception as e:
-            print(f"Direct extraction failed: {e}")
+            print(f"Direct extraction failed for {id}, trying fallback: {e}")
             
-        # 2. Fallback to Invidious if direct extraction failed
+        # 2. IF DIRECT FAILED OR NO URL, Try Invidious Fallback
         if not stream_url:
-            print(f"Attempting Invidious fallback for {id}")
             stream_url = await get_invidious_stream(id)
             
         if not stream_url:
-            return {"success": False, "error": "All extraction methods failed"}
+            return {"success": False, "error": "Extraction failed. YouTube is blocking the server and fallbacks are down."}
             
         stream_cache[id] = (stream_url, current_time)
 
