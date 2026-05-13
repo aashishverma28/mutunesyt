@@ -37,8 +37,19 @@ ydl_opts = {
     'ignoreerrors': True,
     'logtostderr': False,
     'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-    'extractor_args': {'youtube': {'player_client': ['android', 'web', 'ios'], 'skip': ['hls', 'dash']}}
+    'extractor_args': {'youtube': {'player_client': ['android', 'web', 'ios'], 'skip': ['hls', 'dash']}},
+    'geo_bypass': True
 }
+
+@app.get("/debug")
+def debug_info(id: str = "4NRXx6U8ABQ"):
+    url = f"https://music.youtube.com/watch?v={id}"
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=False)
+            return {"success": True, "url": info['url'][:100]}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
 
 # In-memory cache for stream URLs to reduce YouTube lookups
 # Format: { videoId: (url, timestamp) }
