@@ -4,7 +4,7 @@ from fastapi.responses import RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 import uvicorn
 from ytmusicapi import YTMusic
-import yt_dlp
+from pytubefix import YouTube
 import os
 import httpx
 import time
@@ -20,27 +20,6 @@ app.add_middleware(
 )
 
 yt = YTMusic()
-
-# AGGRESSIVE CONFIG FOR CLOUD BYPASS
-ydl_opts = {
-    'format': 'bestaudio/best',
-    'quiet': True,
-    'no_warnings': True,
-    'nocheckcertificate': True,
-    'ignoreerrors': False,
-    'logtostderr': False,
-    'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-    'extractor_args': {
-        'youtube': {
-            'player_client': ['android_music', 'web'],
-            'player_skip': ['webpage', 'configs', 'js'],
-        }
-    },
-    'geo_bypass': True,
-    'source_address': '0.0.0.0',
-    'noplaylist': True,
-    'youtube_include_dash_manifest': False,
-}
 
 stream_cache = {}
 CACHE_TTL = 3600
@@ -84,29 +63,12 @@ def get_artist(request: Request, id: str):
             for s in artist['songs']['results']:
                 if not s.get('videoId'): continue
                 songs.append({
-                    "id": s.get('videoId'), "name": s.get('title'), "duration": 0,
+                    "id": s.get('videoId'), "name": s.get('title'),
                     "artists": {"primary": [{"name": a.get("name"), "id": a.get("id")} for a in s.get("artists", [])]},
                     "image": [{"url": t["url"]} for t in s.get("thumbnails", [])],
                     "downloadUrl": [{"quality": "320kbps", "url": f"{base_url}/stream?id={s.get('videoId')}"}]
                 })
-        albums = [{"id": a.get('browseId'), "name": a.get('title'), "year": a.get('year'), "image": [{"url": t["url"]} for t in a.get("thumbnails", [])]} for a in artist.get('albums', {}).get('results', [])]
-        return {"success": True, "data": {"id": id, "name": artist.get('name'), "image": [{"url": t["url"]} for t in artist.get('thumbnails', [])], "topSongs": songs, "topAlbums": albums}}
-    except Exception as e:
-        return {"success": False, "error": str(e)}
-
-@app.get("/songs")
-def get_song(request: Request, id: str):
-    try:
-        base_url = str(request.base_url).rstrip("/")
-        r = yt.get_song(id)
-        details = r['videoDetails']
-        data = [{
-            "id": details.get('videoId'), "name": details.get('title'),
-            "artists": {"primary": [{"name": details.get("author"), "id": ""}]},
-            "image": [{"url": t["url"]} for t in details.get("thumbnail", {}).get("thumbnails", [])],
-            "downloadUrl": [{"quality": "320kbps", "url": f"{base_url}/stream?id={details.get('videoId')}"}]
-        }]
-        return {"success": True, "data": data}
+        return {"success": True, "data": {"id": id, "name": artist.get('name'), "image": [{"url": t["url"]} for t in artist.get('thumbnails', [])], "topSongs": songs}}
     except Exception as e:
         return {"success": False, "error": str(e)}
 
@@ -115,24 +77,28 @@ async def get_stream(id: str):
     if not id: return {"success": False, "error": "No ID provided"}
     current_time = time.time()
     stream_url = None
+    
     if id in stream_cache:
         cached_url, timestamp = stream_cache[id]
         if current_time - timestamp < CACHE_TTL: stream_url = cached_url
     
     if not stream_url:
-        # Use music.youtube.com for better music stream extraction
-        url = f"https://music.youtube.com/watch?v={id}"
         try:
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                info = ydl.extract_info(url, download=False)
-                if not info or 'url' not in info: raise Exception(f"Extraction failed for {id}")
-                stream_url = info['url']
-                stream_cache[id] = (stream_url, current_time)
+            # Using pytubefix for robust cloud extraction
+            video_url = f"https://www.youtube.com/watch?v={id}"
+            yt_obj = YouTube(video_url, client='ANDROID_MUSIC')
+            stream = yt_obj.streams.get_audio_only()
+            if not stream: raise Exception("No audio stream found")
+            stream_url = stream.url
+            stream_cache[id] = (stream_url, current_time)
         except Exception as e:
              return {"success": False, "error": str(e)}
 
     async def stream_proxy():
-        headers = {'User-Agent': ydl_opts['user_agent'], 'Referer': 'https://music.youtube.com/'}
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Referer': 'https://www.youtube.com/',
+        }
         try:
             async with httpx.AsyncClient(follow_redirects=True, timeout=60.0) as client:
                 async with client.stream("GET", stream_url, headers=headers) as response:

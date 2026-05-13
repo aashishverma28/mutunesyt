@@ -1,5 +1,5 @@
 fastapi
 uvicorn
 ytmusicapi
-yt-dlp>=2024.03.10
+pytubefix
 httpx
