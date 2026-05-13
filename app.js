@@ -268,6 +268,7 @@ window.artistCore = {
 
 // Initialize Audio Element
 const audioObj = new Audio();
+audioObj.crossOrigin = "anonymous";
 audioObj.preload = 'auto';
 if (state.currentTrack) audioObj.src = state.currentTrack.url;
 

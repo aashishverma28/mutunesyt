@@ -28,13 +28,15 @@ yt = YTMusic()
 
 # yt-dlp config for extracting audio stream URLs without downloading
 ydl_opts = {
-    'format': 'bestaudio[ext=m4a]/bestaudio/best',
+    'format': 'bestaudio/best',
     'quiet': True,
     'no_warnings': True,
     'simulate': True,
     'skip_download': True,
     'nocheckcertificate': True,
     'youtube_include_dash_manifest': False,
+    'http_chunk_size': 1048576,
+    'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
 }
 
 # In-memory cache for stream URLs to reduce YouTube lookups
