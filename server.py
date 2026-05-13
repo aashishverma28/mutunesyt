@@ -4,11 +4,9 @@ from fastapi.responses import RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 import uvicorn
 from ytmusicapi import YTMusic
-import yt_dlp
 import os
 import httpx
 import time
-import random
 
 app = FastAPI()
 
@@ -25,18 +23,31 @@ yt = YTMusic()
 stream_cache = {}
 CACHE_TTL = 3600
 
-async def get_free_proxy():
-    """Fetch a free proxy to bypass IP blocks during extraction"""
+async def get_cobalt_stream(video_id):
+    """Offload extraction to Cobalt API (Rotating Proxy System)"""
+    COBALT_URL = "https://api.cobalt.tools/api/json"
+    headers = {
+        "Accept": "application/json",
+        "Content-Type": "application/json"
+    }
+    payload = {
+        "url": f"https://www.youtube.com/watch?v={video_id}",
+        "downloadMode": "audio",
+        "audioFormat": "mp3",
+        "audioBitrate": "320"
+    }
+    
     try:
-        async with httpx.AsyncClient(timeout=5.0) as client:
-            # Fetching from a reliable free proxy list
-            r = await client.get("https://api.proxyscrape.com/v2/?request=displayproxies&protocol=http&timeout=10000&country=all&ssl=all&anonymity=all")
+        async with httpx.AsyncClient(timeout=20.0) as client:
+            r = await client.post(COBALT_URL, json=payload, headers=headers)
             if r.status_code == 200:
-                proxies = [p.strip() for p in r.text.strip().split("\n") if p.strip()]
-                if proxies:
-                    return random.choice(proxies)
+                data = r.json()
+                # Cobalt returns a direct stream/download URL
+                return data.get("url")
+            else:
+                print(f"Cobalt error: {r.status_code} - {r.text}")
     except Exception as e:
-        print(f"Failed to fetch proxy: {e}")
+        print(f"Cobalt request failed: {e}")
     return None
 
 @app.get("/search/songs")
@@ -70,44 +81,17 @@ async def get_stream(id: str):
         if current_time - timestamp < CACHE_TTL: stream_url = cached_url
     
     if not stream_url:
-        proxy = await get_free_proxy()
-        print(f"Using proxy for extraction: {proxy}")
+        print(f"Using Cobalt to extract {id}")
+        stream_url = await get_cobalt_stream(id)
         
-        ydl_opts = {
-            'format': 'bestaudio/best',
-            'quiet': True,
-            'no_warnings': True,
-            'nocheckcertificate': True,
-            'user_agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_3_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Mobile/15E148 Safari/604.1',
-            'extractor_args': {'youtube': {'player_client': ['ios'], 'player_skip': ['webpage']}},
-            'source_address': '0.0.0.0'
-        }
-        
-        if proxy:
-            ydl_opts['proxy'] = f"http://{proxy}"
-            
-        try:
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                info = ydl.extract_info(f"https://www.youtube.com/watch?v={id}", download=False)
-                stream_url = info['url']
-        except Exception as e:
-            print(f"Extraction with proxy failed: {e}")
-            # Final desperate attempt without proxy but different client
-            try:
-                ydl_opts.pop('proxy', None)
-                ydl_opts['extractor_args']['youtube']['player_client'] = ['tv']
-                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                    info = ydl.extract_info(f"https://www.youtube.com/watch?v={id}", download=False)
-                    stream_url = info['url']
-            except Exception as e2:
-                return {"success": False, "error": f"Extraction failed even with proxy. Error: {str(e2)}"}
+        if not stream_url:
+            return {"success": False, "error": "Cobalt extraction failed. Service might be down or video restricted."}
             
         stream_cache[id] = (stream_url, current_time)
 
     async def stream_proxy():
         headers = {
-            'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_3_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Mobile/15E148 Safari/604.1',
-            'Referer': 'https://www.youtube.com/'
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
         }
         try:
             async with httpx.AsyncClient(follow_redirects=True, timeout=60.0) as client:
