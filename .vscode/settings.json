@@ -1,6 +1,9 @@
 {
-    "python.defaultInterpreterPath": "venv\\Scripts\\python.exe",
+    "python.defaultInterpreterPath": "c:\\Users\\sahan\\OneDrive\\Documents\\Antygravity\\Mutunes Send yt\\venv\\Scripts\\python.exe",
     "python.analysis.extraPaths": [
-        "venv\\Lib\\site-packages"
-    ]
+        "c:\\Users\\sahan\\OneDrive\\Documents\\Antygravity\\Mutunes Send yt\\venv\\Lib\\site-packages"
+    ],
+    "python.analysis.useLibraryCodeForTypes": true,
+    "python.analysis.typeCheckingMode": "basic",
+    "python.terminal.activateEnvironment": true
 }
