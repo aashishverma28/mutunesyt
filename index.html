@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html class="dark" lang="en">
+
+<head>
+    <meta charset="utf-8" />
+    <meta content="width=device-width, initial-scale=1.0" name="viewport" />
+    <title>Mutunes - Sonic Pulse</title>
+    <link rel="manifest" href="manifest.json" />
+    <meta name="theme-color" content="#00d4ec" />
+    <link rel="apple-touch-icon" href="https://via.placeholder.com/192x192.png?text=Mutunes" />
+    <link href="https://fonts.googleapis.com" rel="preconnect" />
+    <link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect" />
+    <link
+        href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300..700&family=Manrope:wght@200..800&display=swap"
+        rel="stylesheet" />
+    <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap"
+        rel="stylesheet" />
+    <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+    <script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        "error-dim": "var(--error-dim)", "tertiary": "var(--tertiary)", "surface-container-lowest": "var(--surface-container-lowest)",
+                        "surface-variant": "var(--surface-variant)", "secondary": "var(--secondary)", "primary": "var(--primary)",
+                        "primary-fixed-dim": "var(--primary-fixed-dim)", "on-background": "var(--on-background)", "inverse-surface": "var(--inverse-surface)",
+                        "inverse-primary": "var(--inverse-primary)", "tertiary-fixed": "var(--tertiary-fixed)", "surface-container-low": "var(--surface-container-low)",
+                        "error": "var(--error)", "on-error": "var(--on-error)", "on-primary-fixed": "var(--on-primary-fixed)",
+                        "on-tertiary-container": "var(--on-tertiary-container)", "background": "var(--background)", "on-secondary-fixed": "var(--on-secondary-fixed)",
+                        "outline": "var(--outline)", "outline-variant": "var(--outline-variant)", "secondary-fixed-dim": "var(--secondary-fixed-dim)",
+                        "surface-container-highest": "var(--surface-container-highest)", "on-error-container": "var(--on-error-container)",
+                        "on-primary-fixed-variant": "var(--on-primary-fixed-variant)", "surface": "var(--surface)", "on-tertiary-fixed": "var(--on-tertiary-fixed)",
+                        "primary-container": "var(--primary-container)", "primary-dim": "var(--primary-dim)", "on-secondary": "var(--on-secondary)",
+                        "surface-dim": "var(--surface-dim)", "on-secondary-container": "var(--on-secondary-container)", "inverse-on-surface": "var(--inverse-on-surface)",
+                        "on-tertiary-fixed-variant": "var(--on-tertiary-fixed-variant)", "on-primary": "var(--on-primary)", "surface-bright": "var(--surface-bright)",
+                        "on-surface": "var(--on-surface)", "on-surface-variant": "var(--on-surface-variant)", "on-primary-container": "var(--on-primary-container)",
+                        "surface-tint": "var(--surface-tint)", "tertiary-container": "var(--tertiary-container)", "error-container": "var(--error-container)",
+                        "secondary-container": "var(--secondary-container)", "primary-fixed": "var(--primary-fixed)", "secondary-fixed": "var(--secondary-fixed)",
+                        "on-tertiary": "var(--on-tertiary)", "tertiary-fixed-dim": "var(--tertiary-fixed-dim)", "surface-container-high": "var(--surface-container-high)",
+                        "on-secondary-fixed-variant": "var(--on-secondary-fixed-variant)", "secondary-dim": "var(--secondary-dim)", "surface-container": "var(--surface-container)",
+                        "tertiary-dim": "var(--tertiary-dim)"
+                    },
+                    fontFamily: {
+                        "headline": ["Space Grotesk"],
+                        "body": ["Manrope"],
+                        "label": ["Manrope"]
+                    },
+                    borderRadius: { "DEFAULT": "0.25rem", "lg": "0.5rem", "xl": "0.75rem", "full": "9999px" },
+                },
+            },
+        }
+    </script>
+    <style>
+        :root {
+            --error-dim: #ba1a1a;
+            --tertiary: #1961cc;
+            --surface-container-lowest: #ffffff;
+            --surface-variant: #e1e2e1;
+            --secondary: #00668b;
+            --primary: #006874;
+            --primary-fixed-dim: #00d4ec;
+            --on-background: #191c1d;
+            --inverse-surface: #2e3132;
+            --inverse-primary: #81ecff;
+            --tertiary-fixed: #80b2ff;
+            --surface-container-low: #f3f3f3;
+            --error: #ba1a1a;
+            --on-error: #ffffff;
+            --on-primary-fixed: #001f24;
+            --on-tertiary-container: #001d3f;
+            --background: #fbfdfd;
+            --on-secondary-fixed: #001f29;
+            --outline: #70797a;
+            --outline-variant: #bfced0;
+            --secondary-fixed-dim: #10d5ff;
+            --surface-container-highest: #e0e6e7;
+            --on-error-container: #410002;
+            --on-primary-fixed-variant: #004f58;
+            --surface: #fbfdfd;
+            --on-tertiary-fixed: #001835;
+            --primary-container: #00e3fd;
+            --primary-dim: #00d4ec;
+            --on-secondary: #ffffff;
+            --surface-dim: #dbdbdb;
+            --on-secondary-container: #001f29;
+            --inverse-on-surface: #eff1f1;
+            --on-tertiary-fixed-variant: #003971;
+            --on-primary: #ffffff;
+            --surface-bright: #fbfdfd;
+            --on-surface: #191c1d;
+            --on-surface-variant: #3f484a;
+            --on-primary-container: #001f24;
+            --surface-tint: #006874;
+            --tertiary-container: #599cf9;
+            --error-container: #ffdad6;
+            --secondary-container: #00e3fd;
+            --primary-fixed: #00e3fd;
+            --secondary-fixed: #10d5ff;
+            --on-tertiary: #ffffff;
+            --tertiary-fixed-dim: #65a4ff;
+            --surface-container-high: #e6e6e6;
+            --on-secondary-fixed-variant: #004d61;
+            --secondary-dim: #00c6ee;
+            --surface-container: #ececec;
+            --tertiary-dim: #5c9ffc;
+        }
+
+        .dark {
+            --error-dim: #d7383b;
+            --tertiary: #70aaff;
+            --surface-container-lowest: #000000;
+            --surface-variant: #262626;
+            --secondary: #10d5ff;
+            --primary: #81ecff;
+            --primary-fixed-dim: #00d4ec;
+            --on-background: #ffffff;
+            --inverse-surface: #fcf9f8;
+            --inverse-primary: #006976;
+            --tertiary-fixed: #80b2ff;
+            --surface-container-low: #131313;
+            --error: #ff716c;
+            --on-error: #490006;
+            --on-primary-fixed: #003840;
+            --on-tertiary-container: #001d3f;
+            --background: #0e0e0e;
+            --on-secondary-fixed: #003a47;
+            --outline: #767575;
+            --outline-variant: #484847;
+            --secondary-fixed-dim: #10d5ff;
+            --surface-container-highest: #262626;
+            --on-error-container: #ffa8a3;
+            --on-primary-fixed-variant: #005762;
+            --surface: #0e0e0e;
+            --on-tertiary-fixed: #001835;
+            --primary-container: #00e3fd;
+            --primary-dim: #00d4ec;
+            --on-secondary: #004554;
+            --surface-dim: #0e0e0e;
+            --on-secondary-container: #edfaff;
+            --inverse-on-surface: #565555;
+            --on-tertiary-fixed-variant: #003971;
+            --on-primary: #005762;
+            --surface-bright: #2c2c2c;
+            --on-surface: #ffffff;
+            --on-surface-variant: #adaaaa;
+            --on-primary-container: #004d57;
+            --surface-tint: #81ecff;
+            --tertiary-container: #599cf9;
+            --error-container: #9f0519;
+            --secondary-container: #00677d;
+            --primary-fixed: #00e3fd;
+            --secondary-fixed: #78dfff;
+            --on-tertiary: #002a55;
+            --tertiary-fixed-dim: #65a4ff;
+            --surface-container-high: #20201f;
+            --on-secondary-fixed-variant: #00586b;
+            --secondary-dim: #00c6ee;
+            --surface-container: #1a1a1a;
+            --tertiary-dim: #5c9ffc;
+        }
+
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+
+        .material-symbols-outlined.fill {
+            font-variation-settings: 'FILL' 1, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+
+        body {
+            min-height: max(884px, 100dvh);
+        }
+
+        .no-scrollbar::-webkit-scrollbar {
+            display: none;
+        }
+
+        .no-scrollbar {
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+        }
+
+        .bg-blur-hero {
+            background-image: url('https://lh3.googleusercontent.com/aida-public/AB6AXuBwHa1_5coIRcfgaeUJHGWYZn1vkbjGHU2PeJYjXxCcSj1shq-8AH9c_pKi5N7yPi_OjTS8kz4tmHnpx96TCmtJ9wqIjdBOLoOafysmnuGnCImXv8TgIXwpfRHIBnKX76nIQP6X5HZ8fdo92c_NLuPQb3cnjJXKt2wYBsk9rA9xO369SR1yau4oO2IVNDjnvurq_gnEGYfiQW-BfFZEm_byXYN8vCfZd6A56uk_jJ9-28KbtjbgvvLOfwYtwwEmdCOE_y9C4155V7k');
+            background-size: cover;
+            background-position: center;
+        }
+
+        /* Search loading spinner */
+        @keyframes spin {
+            from {
+                transform: rotate(0deg);
+            }
+
+            to {
+                transform: rotate(360deg);
+            }
+        }
+
+        #search-icon {
+            transition: color 0.2s;
+        }
+
+        #search-icon.spinning {
+            animation: spin 0.8s linear infinite;
+            color: var(--primary);
+        }
+
+        /* Skeleton Loading Shimmer */
+        .skeleton {
+            background: linear-gradient(
+                90deg,
+                rgba(255, 255, 255, 0.03) 25%,
+                rgba(255, 255, 255, 0.08) 37%,
+                rgba(255, 255, 255, 0.03) 63%
+            );
+            background-size: 400% 100%;
+            animation: shimmer 1.4s ease infinite;
+        }
+
+        .dark .skeleton {
+            background: linear-gradient(
+                90deg,
+                rgba(255, 255, 255, 0.03) 25%,
+                rgba(255, 255, 255, 0.08) 37%,
+                rgba(255, 255, 255, 0.03) 63%
+            );
+        }
+
+        /* Light mode skeleton */
+        html:not(.dark) .skeleton {
+            background: linear-gradient(
+                90deg,
+                rgba(0, 0, 0, 0.05) 25%,
+                rgba(0, 0, 0, 0.1) 37%,
+                rgba(0, 0, 0, 0.05) 63%
+            );
+            background-size: 400% 100%;
+        }
+
+        @keyframes shimmer {
+            0% {
+                background-position: 100% 50%;
+            }
+            100% {
+                background-position: 0% 50%;
+            }
+        }
+    </style>
+</head>
+
+<body
+    class="bg-surface-dim text-on-surface font-body selection:bg-primary selection:text-on-primary-fixed overflow-x-hidden">
+
+    <div id="app" class="relative min-h-screen"></div>
+
+    <script src="components.js"></script>
+    <script src="views.js"></script>
+    <script src="app.js"></script>
+    <script>
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('sw.js').then(reg => {
+                    console.log('SW registered!', reg);
+                }).catch(err => console.log('SW registration failed', err));
+            });
+        }
+    </script>
+</body>
+
+</html>

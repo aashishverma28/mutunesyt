@@ -1,0 +1,21 @@
+{
+  "name": "Mutunes - Sonic Pulse",
+  "short_name": "Mutunes",
+  "description": "Discover your Sonic Pulse with Mutunes.",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#0e0e0e",
+  "theme_color": "#00d4ec",
+  "icons": [
+    {
+      "src": "https://via.placeholder.com/192x192.png?text=Mutunes",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "https://via.placeholder.com/512x512.png?text=Mutunes",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}
