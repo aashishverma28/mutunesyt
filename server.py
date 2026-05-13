@@ -8,6 +8,7 @@ from pytubefix import YouTube
 import os
 import httpx
 import time
+import random
 
 app = FastAPI()
 
@@ -21,11 +22,46 @@ app.add_middleware(
 
 yt = YTMusic()
 
+# Cache for stream URLs
 stream_cache = {}
 CACHE_TTL = 3600
 
+# Fallback Invidious instances
+INVIDIOUS_INSTANCES = [
+    "https://invidious.snopyta.org",
+    "https://yewtu.be",
+    "https://invidious.flokinet.to",
+    "https://invidious.sethforprivacy.com",
+    "https://invidious.lunar.icu"
+]
+
+async def get_invidious_stream(video_id):
+    """Fallback to public Invidious instances for stream extraction"""
+    # Shuffle to distribute load
+    instances = list(INVIDIOUS_INSTANCES)
+    random.shuffle(instances)
+    
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        for instance in instances:
+            try:
+                # Invidious API for video info
+                r = await client.get(f"{instance}/api/v1/videos/{video_id}")
+                if r.status_code == 200:
+                    data = r.json()
+                    # Find the best audio-only format
+                    formats = data.get("adaptiveFormats", [])
+                    # Prefer audio/webm or audio/mp4
+                    audio_formats = [f for f in formats if f.get("type", "").startswith("audio/")]
+                    if audio_formats:
+                        # Return the first one
+                        return audio_formats[0]["url"]
+            except Exception as e:
+                print(f"Invidious fallback failed for {instance}: {e}")
+                continue
+    return None
+
 @app.get("/search/songs")
-def search_songs(request: Request, query: str, limit: int = 15):
+async def search_songs(request: Request, query: str, limit: int = 15):
     try:
         base_url = str(request.base_url).rstrip("/")
         results = yt.search(query, filter="songs", limit=limit)
@@ -43,6 +79,52 @@ def search_songs(request: Request, query: str, limit: int = 15):
         return {"success": True, "data": {"results": mapped_results}}
     except Exception as e:
         return {"success": False, "error": str(e)}
+
+@app.get("/stream")
+async def get_stream(id: str):
+    if not id: return {"success": False, "error": "No ID provided"}
+    current_time = time.time()
+    stream_url = None
+    
+    if id in stream_cache:
+        cached_url, timestamp = stream_cache[id]
+        if current_time - timestamp < CACHE_TTL: stream_url = cached_url
+    
+    if not stream_url:
+        # 1. Try pytubefix with TV client (least likely to be blocked)
+        try:
+            video_url = f"https://www.youtube.com/watch?v={id}"
+            yt_obj = YouTube(video_url, client='TV')
+            stream = yt_obj.streams.get_audio_only()
+            if stream:
+                stream_url = stream.url
+        except Exception as e:
+            print(f"Direct extraction failed: {e}")
+            
+        # 2. Fallback to Invidious if direct extraction failed
+        if not stream_url:
+            print(f"Attempting Invidious fallback for {id}")
+            stream_url = await get_invidious_stream(id)
+            
+        if not stream_url:
+            return {"success": False, "error": "All extraction methods failed"}
+            
+        stream_cache[id] = (stream_url, current_time)
+
+    async def stream_proxy():
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Referer': 'https://www.youtube.com/',
+        }
+        try:
+            async with httpx.AsyncClient(follow_redirects=True, timeout=60.0) as client:
+                async with client.stream("GET", stream_url, headers=headers) as response:
+                    if response.status_code != 200: return
+                    async for chunk in response.aiter_bytes(): yield chunk
+        except Exception as e:
+            print(f"Proxy error: {e}")
+
+    return StreamingResponse(stream_proxy(), media_type="audio/mpeg")
 
 @app.get("/search/artists")
 def search_artists(query: str, limit: int = 10):
@@ -71,43 +153,6 @@ def get_artist(request: Request, id: str):
         return {"success": True, "data": {"id": id, "name": artist.get('name'), "image": [{"url": t["url"]} for t in artist.get('thumbnails', [])], "topSongs": songs}}
     except Exception as e:
         return {"success": False, "error": str(e)}
-
-@app.get("/stream")
-async def get_stream(id: str):
-    if not id: return {"success": False, "error": "No ID provided"}
-    current_time = time.time()
-    stream_url = None
-    
-    if id in stream_cache:
-        cached_url, timestamp = stream_cache[id]
-        if current_time - timestamp < CACHE_TTL: stream_url = cached_url
-    
-    if not stream_url:
-        try:
-            # Using pytubefix for robust cloud extraction
-            video_url = f"https://www.youtube.com/watch?v={id}"
-            yt_obj = YouTube(video_url, client='ANDROID_MUSIC')
-            stream = yt_obj.streams.get_audio_only()
-            if not stream: raise Exception("No audio stream found")
-            stream_url = stream.url
-            stream_cache[id] = (stream_url, current_time)
-        except Exception as e:
-             return {"success": False, "error": str(e)}
-
-    async def stream_proxy():
-        headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'Referer': 'https://www.youtube.com/',
-        }
-        try:
-            async with httpx.AsyncClient(follow_redirects=True, timeout=60.0) as client:
-                async with client.stream("GET", stream_url, headers=headers) as response:
-                    if response.status_code != 200: return
-                    async for chunk in response.aiter_bytes(): yield chunk
-        except Exception as e:
-            print(f"Proxy error: {e}")
-
-    return StreamingResponse(stream_proxy(), media_type="audio/mpeg")
 
 @app.get("/search")
 def search_general(query: str = ""):
