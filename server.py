@@ -21,7 +21,10 @@ app.add_middleware(
 
 yt = YTMusic()
 
-# yt-dlp config for extracting audio stream URLs without downloading
+# VERSION FOR CACHE BUSTING
+VERSION = "1.0.4"
+
+# yt-dlp config for extracting audio stream URLs
 ydl_opts = {
     'format': 'bestaudio/best',
     'quiet': True,
@@ -32,47 +35,29 @@ ydl_opts = {
     'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
     'extractor_args': {
         'youtube': {
-            'player_client': ['android', 'ios'],
-            'player_skip': ['webpage', 'configs', 'js'],
+            'player_client': ['android', 'web'],
         }
     },
-    'geo_bypass': True
+    'geo_bypass': True,
+    'source_address': '0.0.0.0', # Force IPv4
+    'noplaylist': True
 }
 
-# In-memory cache for stream URLs to reduce YouTube lookups
-# Format: { videoId: (url, timestamp) }
+# In-memory cache for stream URLs
 stream_cache = {}
-CACHE_TTL = 3600  # 1 hour
+CACHE_TTL = 3600
 
-@app.get("/debug")
-def debug_info(id: str = "4NRXx6U8ABQ"):
-    url = f"https://music.youtube.com/watch?v={id}"
+@app.get("/test_debug")
+def test_debug(id: str = "4NRXx6U8ABQ"):
+    url = f"https://www.youtube.com/watch?v={id}"
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=False)
             if not info:
-                 return {"success": False, "error": "yt-dlp returned None"}
-            return {"success": True, "url": info.get('url', 'No URL found')[:100]}
+                 return {"success": False, "version": VERSION, "error": "yt-dlp returned None"}
+            return {"success": True, "version": VERSION, "url_found": bool(info.get('url'))}
     except Exception as e:
-        return {"success": False, "error": str(e)}
-
-@app.get("/search")
-def search_general(query: str = ""):
-    if not query:
-        return {"success": True, "data": []}
-    try:
-        results = yt.get_search_suggestions(query)
-        songs = []
-        for r in results:
-            title = r.get("title", "") if isinstance(r, dict) else r
-            songs.append({"title": title})
-        
-        data = {
-            "songs": {"results": songs}
-        }
-        return {"success": True, "data": data}
-    except Exception as e:
-        return {"success": False, "error": str(e)}
+        return {"success": False, "version": VERSION, "error": str(e)}
 
 @app.get("/search/songs")
 def search_songs(request: Request, query: str, limit: int = 15):
@@ -96,116 +81,9 @@ def search_songs(request: Request, query: str, limit: int = 15):
                 "image": images,
                 "downloadUrl": [{"quality": "320kbps", "url": f"{base_url}/stream?id={r.get('videoId')}"}]
             })
-        return {"success": True, "data": {"results": mapped_results}}
+        return {"success": True, "version": VERSION, "data": {"results": mapped_results}}
     except Exception as e:
-        return {"success": False, "error": str(e)}
-
-@app.get("/search/artists")
-def search_artists(query: str, limit: int = 10):
-    try:
-        results = yt.search(query, filter="artists", limit=limit)
-        mapped_results = []
-        for r in results:
-            thumbnails = r.get("thumbnails", [])
-            images = [{"url": t["url"]} for t in thumbnails]
-            if not images:
-                images = [{"url": "https://via.placeholder.com/150?text=Artist"}]
-
-            mapped_results.append({
-                "id": r.get('browseId'),
-                "name": r.get('artist'),
-                "image": images
-            })
-        return {"success": True, "data": {"results": mapped_results}}
-    except Exception as e:
-        return {"success": False, "error": str(e)}
-
-@app.get("/artists")
-def get_artist(request: Request, id: str):
-    try:
-        base_url = str(request.base_url).rstrip("/")
-        artist = yt.get_artist(id)
-        
-        songs = []
-        if 'songs' in artist and 'results' in artist['songs']:
-            for s in artist['songs']['results']:
-                if not s.get('videoId'):
-                     continue
-                
-                thumbnails = s.get("thumbnails", [])
-                images = [{"url": t["url"]} for t in thumbnails]
-                if not images:
-                    images = [{"url": "https://via.placeholder.com/500?text=No+Art"}]
-
-                songs.append({
-                    "id": s.get('videoId'),
-                    "name": s.get('title'),
-                    "duration": 0,
-                    "artists": {
-                        "primary": [{"name": a.get("name"), "id": a.get("id")} for a in s.get("artists", [])]
-                    },
-                    "image": images,
-                    "downloadUrl": [{"quality": "320kbps", "url": f"{base_url}/stream?id={s.get('videoId')}"}]
-                })
-        
-        albums = []
-        if 'albums' in artist and 'results' in artist['albums']:
-            for a in artist['albums']['results']:
-                thumbnails = a.get("thumbnails", [])
-                images = [{"url": t["url"]} for t in thumbnails]
-                if not images:
-                    images = [{"url": "https://via.placeholder.com/500?text=No+Art"}]
-
-                albums.append({
-                    "id": a.get('browseId'),
-                    "name": a.get('title'),
-                    "year": a.get('year'),
-                    "image": images
-                })
-
-        thumbnails = artist.get('thumbnails', [])
-        images = [{"url": t["url"]} for t in thumbnails]
-        if not images:
-             images = [{"url": "https://via.placeholder.com/500?text=No+Art"}]
-
-        data = {
-            "id": id,
-            "name": artist.get('name'),
-            "image": images,
-            "topSongs": songs,
-            "topAlbums": albums
-        }
-        return {"success": True, "data": data}
-    except Exception as e:
-        return {"success": False, "error": str(e)}
-
-@app.get("/songs")
-def get_song(request: Request, id: str):
-    try:
-        base_url = str(request.base_url).rstrip("/")
-        r = yt.get_song(id)
-        if not r or 'videoDetails' not in r:
-            raise Exception("Song not found")
-        
-        details = r['videoDetails']
-        thumbnails = details.get("thumbnail", {}).get("thumbnails", [])
-        images = [{"url": t["url"]} for t in thumbnails]
-        if not images:
-             images = [{"url": "https://via.placeholder.com/500?text=No+Art"}]
-             
-        data = [{
-            "id": details.get('videoId'),
-            "name": details.get('title'),
-            "artists": {
-                "primary": [{"name": details.get("author"), "id": ""}]
-            },
-            "image": images,
-            "downloadUrl": [{"quality": "320kbps", "url": f"{base_url}/stream?id={details.get('videoId')}"}]
-        }]
-            
-        return {"success": True, "data": data}
-    except Exception as e:
-        return {"success": False, "error": str(e)}
+        return {"success": False, "version": VERSION, "error": str(e)}
 
 @app.get("/stream")
 async def get_stream(id: str):
@@ -213,30 +91,29 @@ async def get_stream(id: str):
         return {"success": False, "error": "No ID provided"}
     
     current_time = time.time()
-    
     stream_url = None
+    
     if id in stream_cache:
         cached_url, timestamp = stream_cache[id]
         if current_time - timestamp < CACHE_TTL:
             stream_url = cached_url
     
     if not stream_url:
-        url = f"https://music.youtube.com/watch?v={id}"
+        url = f"https://www.youtube.com/watch?v={id}"
         try:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                print(f"Fetching fresh stream for: {id}")
                 info = ydl.extract_info(url, download=False)
                 if not info or 'url' not in info:
-                    raise Exception("yt-dlp failed to extract stream URL")
+                    raise Exception(f"Failed to extract info for {id}")
                 stream_url = info['url']
                 stream_cache[id] = (stream_url, current_time)
         except Exception as e:
-             return {"success": False, "error": str(e)}
+             return {"success": False, "version": VERSION, "error": str(e)}
 
     async def stream_proxy():
         headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'Referer': 'https://music.youtube.com/',
+            'Referer': 'https://www.youtube.com/',
         }
         try:
             async with httpx.AsyncClient(follow_redirects=True, timeout=60.0) as client:
@@ -251,7 +128,19 @@ async def get_stream(id: str):
 
     return StreamingResponse(stream_proxy(), media_type="audio/mpeg")
 
-# MOVED STATIC FILES TO THE BOTTOM TO AVOID SHADOWING ROUTES
+# General catch-all for search suggestions
+@app.get("/search")
+def search_general(query: str = ""):
+    if not query:
+        return {"success": True, "data": []}
+    try:
+        results = yt.get_search_suggestions(query)
+        songs = [{"title": r.get("title", "") if isinstance(r, dict) else r} for r in results]
+        return {"success": True, "data": {"songs": {"results": songs}}}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+# Static files and root redirection at the bottom
 app.mount("/static", StaticFiles(directory="."), name="static")
 
 @app.get("/")
