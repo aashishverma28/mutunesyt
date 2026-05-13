@@ -1,11 +1,13 @@
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import RedirectResponse
+from fastapi.responses import RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 import uvicorn
 from ytmusicapi import YTMusic
 import yt_dlp
 import os
+import httpx
+import time
 
 app = FastAPI()
 
@@ -31,12 +33,11 @@ ydl_opts = {
     'format': 'bestaudio/best',
     'quiet': True,
     'no_warnings': True,
-    'simulate': True,
-    'skip_download': True,
     'nocheckcertificate': True,
-    'youtube_include_dash_manifest': False,
-    'http_chunk_size': 1048576,
-    'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+    'ignoreerrors': True,
+    'logtostderr': False,
+    'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    'extractor_args': {'youtube': {'player_client': ['android', 'web']}}
 }
 
 # In-memory cache for stream URLs to reduce YouTube lookups
@@ -202,32 +203,40 @@ def get_song(request: Request, id: str):
         return {"success": False, "error": str(e)}
 
 @app.get("/stream")
-def get_stream(id: str):
+async def get_stream(id: str):
     if not id:
         return {"success": False, "error": "No ID provided"}
     
-    import time
     current_time = time.time()
     
     # Check cache
+    stream_url = None
     if id in stream_cache:
         cached_url, timestamp = stream_cache[id]
         if current_time - timestamp < CACHE_TTL:
-            return RedirectResponse(cached_url)
+            stream_url = cached_url
     
-    url = f"https://music.youtube.com/watch?v={id}"
-    try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            print(f"Fetching fresh stream for: {id}")
-            info = ydl.extract_info(url, download=False)
-            stream_url = info['url']
-            
-            # Save to cache
-            stream_cache[id] = (stream_url, current_time)
-            
-            return RedirectResponse(stream_url)
-    except Exception as e:
-         return {"success": False, "error": str(e)}
+    if not stream_url:
+        url = f"https://music.youtube.com/watch?v={id}"
+        try:
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                print(f"Fetching fresh stream for: {id}")
+                info = ydl.extract_info(url, download=False)
+                stream_url = info['url']
+                
+                # Save to cache
+                stream_cache[id] = (stream_url, current_time)
+        except Exception as e:
+             return {"success": False, "error": str(e)}
+
+    # Proxy the stream to avoid IP-locking and datacenter blocks
+    async def stream_proxy():
+        async with httpx.AsyncClient(follow_redirects=True) as client:
+            async with client.stream("GET", stream_url) as response:
+                async for chunk in response.aiter_bytes():
+                    yield chunk
+
+    return StreamingResponse(stream_proxy(), media_type="audio/mpeg")
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8000))
