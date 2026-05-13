@@ -4,7 +4,7 @@ from fastapi.responses import RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 import uvicorn
 from ytmusicapi import YTMusic
-from pytubefix import YouTube
+import yt_dlp
 import os
 import httpx
 import time
@@ -25,31 +25,33 @@ yt = YTMusic()
 stream_cache = {}
 CACHE_TTL = 3600
 
-INVIDIOUS_INSTANCES = [
-    "https://invidious.snopyta.org",
-    "https://yewtu.be",
-    "https://invidious.flokinet.to",
-    "https://invidious.lunar.icu",
-    "https://inv.tux.digital",
-    "https://invidious.projectsegfau.lt"
+# PRE-DEFINED ROBUST INVIDIOUS INSTANCES (API ONLY)
+INVIDIOUS_API_INSTANCES = [
+    "https://invidious.snopyta.org/api/v1",
+    "https://yewtu.be/api/v1",
+    "https://invidious.flokinet.to/api/v1",
+    "https://invidious.lunar.icu/api/v1",
+    "https://inv.tux.digital/api/v1"
 ]
 
-async def get_invidious_stream(video_id):
-    instances = list(INVIDIOUS_INSTANCES)
+async def get_proxy_stream(video_id):
+    """Attempt to get stream URL via public Invidious API fallbacks"""
+    instances = list(INVIDIOUS_API_INSTANCES)
     random.shuffle(instances)
+    
     async with httpx.AsyncClient(timeout=10.0, follow_redirects=True) as client:
-        for instance in instances:
+        for api_base in instances:
             try:
-                r = await client.get(f"{instance}/api/v1/videos/{video_id}")
+                r = await client.get(f"{api_base}/videos/{video_id}")
                 if r.status_code == 200:
                     data = r.json()
                     formats = data.get("adaptiveFormats", [])
-                    audio_formats = [f for f in formats if f.get("type", "").startswith("audio/")]
-                    if audio_formats:
-                        # Sort by bitrate if possible
-                        audio_formats.sort(key=lambda x: int(x.get("bitrate", 0)), reverse=True)
-                        return audio_formats[0]["url"]
-            except Exception:
+                    # Find audio only
+                    audio = [f for f in formats if f.get("type", "").startswith("audio/")]
+                    if audio:
+                        audio.sort(key=lambda x: int(x.get("bitrate", 0)), reverse=True)
+                        return audio[0]["url"]
+            except:
                 continue
     return None
 
@@ -84,29 +86,35 @@ async def get_stream(id: str):
         if current_time - timestamp < CACHE_TTL: stream_url = cached_url
     
     if not stream_url:
-        # 1. Try pytubefix first
+        # Step 1: Try Direct Extraction with multiple client fallback
+        ydl_opts = {
+            'format': 'bestaudio/best',
+            'quiet': True,
+            'no_warnings': True,
+            'extractor_args': {'youtube': {'player_client': ['ios', 'android', 'tv'], 'player_skip': ['webpage']}},
+            'source_address': '0.0.0.0'
+        }
         try:
-            video_url = f"https://www.youtube.com/watch?v={id}"
-            yt_obj = YouTube(video_url, client='TV')
-            stream = yt_obj.streams.get_audio_only()
-            if stream:
-                stream_url = stream.url
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(f"https://www.youtube.com/watch?v={id}", download=False)
+                stream_url = info['url']
         except Exception as e:
-            print(f"Direct extraction failed for {id}, trying fallback: {e}")
+            print(f"Direct extract failed: {e}")
             
-        # 2. IF DIRECT FAILED OR NO URL, Try Invidious Fallback
+        # Step 2: Fallback to Invidious API (Distributed IPs)
         if not stream_url:
-            stream_url = await get_invidious_stream(id)
+            print(f"Using Invidious API fallback for {id}")
+            stream_url = await get_proxy_stream(id)
             
         if not stream_url:
-            return {"success": False, "error": "Extraction failed. YouTube is blocking the server and fallbacks are down."}
+            return {"success": False, "error": "Could not extract stream. Render IP is blocked and fallbacks failed."}
             
         stream_cache[id] = (stream_url, current_time)
 
     async def stream_proxy():
         headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'Referer': 'https://www.youtube.com/',
+            'Referer': 'https://www.youtube.com/'
         }
         try:
             async with httpx.AsyncClient(follow_redirects=True, timeout=60.0) as client:
