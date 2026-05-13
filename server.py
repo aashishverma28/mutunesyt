@@ -37,7 +37,7 @@ ydl_opts = {
     'ignoreerrors': True,
     'logtostderr': False,
     'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-    'extractor_args': {'youtube': {'player_client': ['android', 'web']}}
+    'extractor_args': {'youtube': {'player_client': ['android', 'web', 'ios'], 'skip': ['hls', 'dash']}}
 }
 
 # In-memory cache for stream URLs to reduce YouTube lookups
@@ -231,10 +231,20 @@ async def get_stream(id: str):
 
     # Proxy the stream to avoid IP-locking and datacenter blocks
     async def stream_proxy():
-        async with httpx.AsyncClient(follow_redirects=True) as client:
-            async with client.stream("GET", stream_url) as response:
-                async for chunk in response.aiter_bytes():
-                    yield chunk
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Referer': 'https://music.youtube.com/',
+        }
+        try:
+            async with httpx.AsyncClient(follow_redirects=True, timeout=60.0) as client:
+                async with client.stream("GET", stream_url, headers=headers) as response:
+                    if response.status_code != 200:
+                        print(f"Failed to fetch stream: {response.status_code}")
+                        return
+                    async for chunk in response.aiter_bytes():
+                        yield chunk
+        except Exception as e:
+            print(f"Proxy error for {id}: {e}")
 
     return StreamingResponse(stream_proxy(), media_type="audio/mpeg")
 
