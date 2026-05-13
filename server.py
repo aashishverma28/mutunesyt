@@ -19,13 +19,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Serving static files (index.html, JS, etc.)
-app.mount("/static", StaticFiles(directory="."), name="static")
-
-@app.get("/")
-def read_root():
-    return RedirectResponse(url="/static/index.html")
-
 yt = YTMusic()
 
 # yt-dlp config for extracting audio stream URLs without downloading
@@ -34,12 +27,22 @@ ydl_opts = {
     'quiet': True,
     'no_warnings': True,
     'nocheckcertificate': True,
-    'ignoreerrors': True,
+    'ignoreerrors': False,
     'logtostderr': False,
     'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-    'extractor_args': {'youtube': {'player_client': ['android', 'web', 'ios'], 'skip': ['hls', 'dash']}},
+    'extractor_args': {
+        'youtube': {
+            'player_client': ['android', 'ios'],
+            'player_skip': ['webpage', 'configs', 'js'],
+        }
+    },
     'geo_bypass': True
 }
+
+# In-memory cache for stream URLs to reduce YouTube lookups
+# Format: { videoId: (url, timestamp) }
+stream_cache = {}
+CACHE_TTL = 3600  # 1 hour
 
 @app.get("/debug")
 def debug_info(id: str = "4NRXx6U8ABQ"):
@@ -47,22 +50,17 @@ def debug_info(id: str = "4NRXx6U8ABQ"):
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=False)
-            return {"success": True, "url": info['url'][:100]}
+            if not info:
+                 return {"success": False, "error": "yt-dlp returned None"}
+            return {"success": True, "url": info.get('url', 'No URL found')[:100]}
     except Exception as e:
         return {"success": False, "error": str(e)}
-
-# In-memory cache for stream URLs to reduce YouTube lookups
-# Format: { videoId: (url, timestamp) }
-stream_cache = {}
-CACHE_TTL = 3600  # 1 hour
 
 @app.get("/search")
 def search_general(query: str = ""):
     if not query:
         return {"success": True, "data": []}
     try:
-        # get_search_suggestions generally returns a list of strings
-        # or dicts depending on the exact version/response
         results = yt.get_search_suggestions(query)
         songs = []
         for r in results:
@@ -83,7 +81,6 @@ def search_songs(request: Request, query: str, limit: int = 15):
         results = yt.search(query, filter="songs", limit=limit)
         mapped_results = []
         for r in results:
-            # Safely grab thumbnails
             thumbnails = r.get("thumbnails", [])
             images = [{"url": t["url"]} for t in thumbnails]
             if not images:
@@ -133,7 +130,7 @@ def get_artist(request: Request, id: str):
         if 'songs' in artist and 'results' in artist['songs']:
             for s in artist['songs']['results']:
                 if not s.get('videoId'):
-                     continue # skip if unplayable
+                     continue
                 
                 thumbnails = s.get("thumbnails", [])
                 images = [{"url": t["url"]} for t in thumbnails]
@@ -143,7 +140,7 @@ def get_artist(request: Request, id: str):
                 songs.append({
                     "id": s.get('videoId'),
                     "name": s.get('title'),
-                    "duration": 0, # usually not strictly provided in this particular endpoint
+                    "duration": 0,
                     "artists": {
                         "primary": [{"name": a.get("name"), "id": a.get("id")} for a in s.get("artists", [])]
                     },
@@ -166,7 +163,6 @@ def get_artist(request: Request, id: str):
                     "image": images
                 })
 
-        # Top level thumbnails
         thumbnails = artist.get('thumbnails', [])
         images = [{"url": t["url"]} for t in thumbnails]
         if not images:
@@ -187,8 +183,6 @@ def get_artist(request: Request, id: str):
 def get_song(request: Request, id: str):
     try:
         base_url = str(request.base_url).rstrip("/")
-        # We can implement get_song using yt.get_song(id) but it requires videoId.
-        # It's primarily used for 'refetchMetadata' in frontend.
         r = yt.get_song(id)
         if not r or 'videoDetails' not in r:
             raise Exception("Song not found")
@@ -220,7 +214,6 @@ async def get_stream(id: str):
     
     current_time = time.time()
     
-    # Check cache
     stream_url = None
     if id in stream_cache:
         cached_url, timestamp = stream_cache[id]
@@ -233,14 +226,13 @@ async def get_stream(id: str):
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 print(f"Fetching fresh stream for: {id}")
                 info = ydl.extract_info(url, download=False)
+                if not info or 'url' not in info:
+                    raise Exception("yt-dlp failed to extract stream URL")
                 stream_url = info['url']
-                
-                # Save to cache
                 stream_cache[id] = (stream_url, current_time)
         except Exception as e:
              return {"success": False, "error": str(e)}
 
-    # Proxy the stream to avoid IP-locking and datacenter blocks
     async def stream_proxy():
         headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
@@ -258,6 +250,13 @@ async def get_stream(id: str):
             print(f"Proxy error for {id}: {e}")
 
     return StreamingResponse(stream_proxy(), media_type="audio/mpeg")
+
+# MOVED STATIC FILES TO THE BOTTOM TO AVOID SHADOWING ROUTES
+app.mount("/static", StaticFiles(directory="."), name="static")
+
+@app.get("/")
+def read_root():
+    return RedirectResponse(url="/static/index.html")
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8000))
