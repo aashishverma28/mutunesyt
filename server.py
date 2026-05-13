@@ -25,28 +25,18 @@ yt = YTMusic()
 stream_cache = {}
 CACHE_TTL = 3600
 
-async def get_piped_stream(video_id):
-    """Fallback to public Piped API instances for stream extraction"""
-    PIPED_INSTANCES = [
-        "https://pipedapi.kavin.rocks",
-        "https://api.piped.victr.me",
-        "https://pipedapi.rivo.gg",
-        "https://piped-api.garudalinux.org"
-    ]
-    random.shuffle(PIPED_INSTANCES)
-    async with httpx.AsyncClient(timeout=10.0, follow_redirects=True) as client:
-        for base in PIPED_INSTANCES:
-            try:
-                r = await client.get(f"{base}/streams/{video_id}")
-                if r.status_code == 200:
-                    data = r.json()
-                    audio_streams = data.get("audioStreams", [])
-                    if audio_streams:
-                        # Return the highest quality audio stream
-                        audio_streams.sort(key=lambda x: x.get("bitrate", 0), reverse=True)
-                        return audio_streams[0]["url"]
-            except:
-                continue
+async def get_free_proxy():
+    """Fetch a free proxy to bypass IP blocks during extraction"""
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            # Fetching from a reliable free proxy list
+            r = await client.get("https://api.proxyscrape.com/v2/?request=displayproxies&protocol=http&timeout=10000&country=all&ssl=all&anonymity=all")
+            if r.status_code == 200:
+                proxies = [p.strip() for p in r.text.strip().split("\n") if p.strip()]
+                if proxies:
+                    return random.choice(proxies)
+    except Exception as e:
+        print(f"Failed to fetch proxy: {e}")
     return None
 
 @app.get("/search/songs")
@@ -60,7 +50,7 @@ async def search_songs(request: Request, query: str, limit: int = 15):
             mapped_results.append({
                 "id": r.get('videoId'),
                 "name": r.get('title'),
-                "duration": r.get('duration_seconds', 0),
+                "duration": r.get("duration_seconds", 0),
                 "artists": {"primary": [{"name": a.get("name"), "id": a.get("id")} for a in r.get("artists", [])]},
                 "image": [{"url": t["url"]} for t in thumbnails] if thumbnails else [{"url": "https://via.placeholder.com/500?text=No+Art"}],
                 "downloadUrl": [{"quality": "320kbps", "url": f"{base_url}/stream?id={r.get('videoId')}"}]
@@ -80,35 +70,41 @@ async def get_stream(id: str):
         if current_time - timestamp < CACHE_TTL: stream_url = cached_url
     
     if not stream_url:
-        # Step 1: Try Direct Extraction with iPhone 15 headers
+        proxy = await get_free_proxy()
+        print(f"Using proxy for extraction: {proxy}")
+        
         ydl_opts = {
             'format': 'bestaudio/best',
             'quiet': True,
             'no_warnings': True,
             'nocheckcertificate': True,
-            'user_agent': 'com.google.ios.youtube/19.05.6 (iPhone16,2; U; CPU iOS 17_3_1 like Mac OS X; en_US)',
-            'extractor_args': {'youtube': {'player_client': ['ios'], 'player_skip': ['webpage', 'configs', 'js']}},
+            'user_agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_3_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Mobile/15E148 Safari/604.1',
+            'extractor_args': {'youtube': {'player_client': ['ios'], 'player_skip': ['webpage']}},
             'source_address': '0.0.0.0'
         }
+        
+        if proxy:
+            ydl_opts['proxy'] = f"http://{proxy}"
+            
         try:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(f"https://www.youtube.com/watch?v={id}", download=False)
                 stream_url = info['url']
         except Exception as e:
-            print(f"Direct extract failed for {id}: {e}")
-            
-        # Step 2: Fallback to Piped API
-        if not stream_url:
-            print(f"Using Piped API fallback for {id}")
-            stream_url = await get_piped_stream(id)
-            
-        if not stream_url:
-            return {"success": False, "error": "Extraction failed. All bypass methods (Direct + Piped) are blocked."}
+            print(f"Extraction with proxy failed: {e}")
+            # Final desperate attempt without proxy but different client
+            try:
+                ydl_opts.pop('proxy', None)
+                ydl_opts['extractor_args']['youtube']['player_client'] = ['tv']
+                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                    info = ydl.extract_info(f"https://www.youtube.com/watch?v={id}", download=False)
+                    stream_url = info['url']
+            except Exception as e2:
+                return {"success": False, "error": f"Extraction failed even with proxy. Error: {str(e2)}"}
             
         stream_cache[id] = (stream_url, current_time)
 
     async def stream_proxy():
-        # Use generic mobile user agent for proxying
         headers = {
             'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_3_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Mobile/15E148 Safari/604.1',
             'Referer': 'https://www.youtube.com/'
@@ -122,15 +118,6 @@ async def get_stream(id: str):
             print(f"Proxy error: {e}")
 
     return StreamingResponse(stream_proxy(), media_type="audio/mpeg")
-
-@app.get("/search/artists")
-def search_artists(query: str, limit: int = 10):
-    try:
-        results = yt.search(query, filter="artists", limit=limit)
-        mapped_results = [{"id": r.get('browseId'), "name": r.get('artist'), "image": [{"url": t["url"]} for t in r.get("thumbnails", [])]} for r in results]
-        return {"success": True, "data": {"results": mapped_results}}
-    except Exception as e:
-        return {"success": False, "error": str(e)}
 
 @app.get("/artists")
 def get_artist(request: Request, id: str):
@@ -148,16 +135,6 @@ def get_artist(request: Request, id: str):
                     "downloadUrl": [{"quality": "320kbps", "url": f"{base_url}/stream?id={s.get('videoId')}"}]
                 })
         return {"success": True, "data": {"id": id, "name": artist.get('name'), "image": [{"url": t["url"]} for t in artist.get('thumbnails', [])], "topSongs": songs}}
-    except Exception as e:
-        return {"success": False, "error": str(e)}
-
-@app.get("/search")
-def search_general(query: str = ""):
-    if not query: return {"success": True, "data": []}
-    try:
-        results = yt.get_search_suggestions(query)
-        songs = [{"title": r.get("title", "") if isinstance(r, dict) else r} for r in results]
-        return {"success": True, "data": {"songs": {"results": songs}}}
     except Exception as e:
         return {"success": False, "error": str(e)}
 
